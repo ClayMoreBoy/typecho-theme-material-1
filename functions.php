@@ -1,396 +1,215 @@
 <?php
+if (!defined('__TYPECHO_ROOT_DIR__')) exit;
 
-define("MATERIAL_VERSION", "3.2.0-preview-1");
+define("MATERIAL_VERSION", "3.3.5");
 
+require_once("lib/tools.php");
 require_once("lib/UACheck.php");
 require_once("lib/pangu.php");
+require_once("lib/Spyc.php");
+require_once("lib/ThemeOptionRender.php");
+require_once("lib/ThemeOption.php");
 
-error_reporting(0);
+if (!defined('__TYPECHO_DEBUG__') || __TYPECHO_DEBUG__ == 0) {
+    error_reporting(0);
+}
+
+if (isset($this)) {
+    global $t;
+    $t = $this;
+}
+
+if (isset($_GET["mod"]) && isset($this) && $this->is('index')) {
+    if ($_GET["mod"] === "search-xml") {
+        $this->need("page-search.php");
+        exit;
+    }
+    if ($_GET["mod"] === "expert") {
+        if ($_GET['type'] === 'comments') {
+            if (Typecho_Widget::widget('Widget_User')->pass('administrator', true)) {
+                header("Content-Type: text/xml");
+                header('Content-Disposition: attachment; filename="'.Typecho_Widget::widget('Widget_Options')->title.'-comments-wxr-'.gmdate('Y-m-d').'.xml"');
+                $tool = new Comment_Expert();
+                $db = Typecho_Db::get();
+                $query = $db->select('*')->from('table.contents')->where('type = ?', 'post')->orWhere('type = ?', 'page');
+                $result = $db->fetchAll($query);
+                foreach ($result as $item) {
+                    $tool->addBlock($item);
+                }
+                $comment_query = $db->select('*')->from('table.comments');
+                $comments = $db->fetchAll($comment_query);
+                foreach ($comments as $comment) {
+                    if ($comment['status'] !== 'spam') {
+                        $tool->addComment($comment);
+                    }
+                }
+                echo $tool->getResult();
+                exit;
+            }
+        }
+    }
+}
 
 /**
- * JavaScript LS 载入
+ * JavaScript 载入
  * @param string name
  * @param string uri
  */
 function jsLsload($name, $uri)
 {
-    $options = Helper::options();
-    $md5 = md5(file_get_contents($options->themeFile(getTheme(), $uri)));
-    $base64 = base64_encode($md5);
-    echo '<script>lsloader.load("' . $name . '","' . getThemeFile($uri) . '?' . $base64 . '", true)</script>';
+    if (in_array("LocalStorage", getThemeOptions("switch"))) {
+        $options = Helper::options();
+        $identifier = $name . $uri . filemtime($options->themeFile(getTheme(), $uri)) . MATERIAL_VERSION;
+        $hash = md5($identifier);
+        echo '<script>lsloader.load("' . $name . '","' . getThemeFile($uri) . '?' . $hash . '", true)</script>';
+    } else {
+        echo '<script src="'.getThemeFile($uri).'"></script>';
+    }
 }
 
 /**
- * CSS LS 载入
+ * CSS 载入
  * @param string name
  * @param string uri
  */
-function cssLsload($name, $uri) 
+function cssLsload($name, $uri)
+{
+    if (in_array("LocalStorage", getThemeOptions("switch"))) {
+        $options = Helper::options();
+        $identifier = $name . $uri . filemtime($options->themeFile(getTheme(), $uri)) . MATERIAL_VERSION;
+        $hash = md5($identifier);
+        echo '<style id="' . $name . '"></style>';
+        echo '<script>if(typeof window.lsLoadCSSMaxNums === "undefined")window.lsLoadCSSMaxNums = 0;window.lsLoadCSSMaxNums++;lsloader.load("' . $name . '","' . getThemeFile($uri) . '?' . $hash . '",function(){if(typeof window.lsLoadCSSNums === "undefined")window.lsLoadCSSNums = 0;window.lsLoadCSSNums++;if(window.lsLoadCSSNums == window.lsLoadCSSMaxNums)document.documentElement.style.display="";}, false)</script>';
+    } else {
+        echo '<link href="'.getThemeFile($uri).'" rel="stylesheet" type="text/css" />';
+    }
+}
+
+function getScriptType()
+{
+    if (in_array("LocalStorage", getThemeOptions("switch"))) {
+        echo 'text/ls-javascript';
+    } else {
+        echo 'text/javascript';
+    }
+}
+
+function getBackgroundLazyload($url)
+{
+    if (in_array("LazyloadIndex", getThemeOptions("switch"))) {
+        echo 'data-original="' . $url . '"';
+    } else {
+        echo 'style="background-image: url(\'' . $url . '\');"';
+    }
+}
+
+function getThemeFile($uri, $print = false)
 {
     $options = Helper::options();
-    $md5 = md5(file_get_contents($options->themeFile(getTheme(), $uri)));
-    $base64 = base64_encode($md5);
-    echo '<style id="' . $name . '"></style>';
-    echo '<script>if(typeof window.lsLoadCSSMaxNums === "undefined")window.lsLoadCSSMaxNums = 0;window.lsLoadCSSMaxNums++;lsloader.load("' . $name . '","' . getThemeFile($uri) . '?' . $base64 . '",function(){if(typeof window.lsLoadCSSNums === "undefined")window.lsLoadCSSNums = 0;window.lsLoadCSSNums++;if(window.lsLoadCSSNums == window.lsLoadCSSMaxNums)document.documentElement.style.display="";}, false)</script>';
+    if (getThemeOptions("CDNType") == 1) {
+        $url = "https://cdn.jsdelivr.net/gh/idawnlight/typecho-theme-material@" . MATERIAL_VERSION . "/" . $uri;
+    } else if (getThemeOptions("CDNType") == 3) {
+        $url = "https://shadow.elemecdn.com/gh/idawnlight/typecho-theme-material@" . MATERIAL_VERSION . "/" . $uri;
+    } else if (getThemeOptions("CDNType") == 2) {
+        $url = getThemeOptions("CDNURL") . "/" . $uri;
+    } else {
+        $site = substr($options->siteUrl, 0, strlen($options->siteUrl) - 1);
+        $url = $site . __TYPECHO_THEME_DIR__ . "/" . getTheme() . "/" . $uri;
+    }
+    if ($print) echo $url;
+    return $url;
 }
 
-function getThemeFile($uri)
-{
-    $options = Helper::options();
-    $themeOptions = getThemeOptions();
-    if ($themeOptions["CDNType"] == 0)
-        return $options->index . __TYPECHO_THEME_DIR__ . "/" . getTheme() . "/" . $uri;
-    elseif ($themeOptions["CDNType"] == 1)
-        return "https://cdn.jsdelivr.net/gh/LiMingYuGuang/typecho-theme-material@" . MATERIAL_VERSION . "/" . $uri;
-    else
-        return $themeOptions["CDNURL"] . "/" . $uri;
-}
-
-function thisThemeFile($uri)
-{
-    echo getThemeFile($uri);
-    return;
-}
-
+/**
+ * 获取当前使用的主题名称
+ * @return string theme name
+ */
 function getTheme()
 {
-    if (!isset($themeIs)) {
+    static $themeName = NULL;
+    if ($themeName === NULL) {
         $db = Typecho_Db::get();
-        $query = $db->select('value')->from('table.options')->where('name = ?', 'theme'); 
+        $query = $db->select('value')->from('table.options')->where('name = ?', 'theme');
         $result = $db->fetchAll($query);
-        static $themeIs;
-        $themeIs = $result[0]["value"];
-        unset($db); unset($result);
+        $themeName = $result[0]["value"];
     }
-    return $themeIs;
+    return $themeName;
 }
 
-function getThemeOptions()
+/**
+ * 获取当前的主题设置
+ * @param string setting name
+ * @return mixed setting value
+ */
+function getThemeOptions($setting = NULL, $print = false)
 {
-    if (!isset($themeOptions)) {
+    static $themeOptions = NULL;
+    if ($themeOptions === NULL) {
         $db = Typecho_Db::get();
-        $query = $db->select('value')->from('table.options')->where('name = ?', 'theme:' . getTheme()); 
+        $query = $db->select('value')->from('table.options')->where('name = ?', 'theme:' . getTheme());
         $result = $db->fetchAll($query);
-        static $themeOptions;
         $themeOptions = unserialize($result[0]["value"]);
-        unset($db);
     }
-    return $themeOptions;
+    if ($print) echo (isset($themeOptions[$setting])) ? $themeOptions[$setting] : NULL;
+    return ($setting === NULL) ? $themeOptions : (isset($themeOptions[$setting]) ? $themeOptions[$setting] : NULL);
 }
 
 function themeInit($archive)
 {
-    if ($archive->is('post') || $archive->is('page')) {
+    if (($archive->is('post') || $archive->is('page')) && in_array("Lazyload", getThemeOptions("switch"))) {
         $archive->content = preg_replace('#<img(.*?) src="(.*?)" (.*?)>#',
-        '<img$1 data-original="$2" class="lazy" $3>', $archive->content);
+            '<img$1 data-original="$2" class="lazy" $3>', $archive->content);
     }
+    $options = Helper::options();
+    if ($options->version === "1.1/17.10.30") {
+        $archive->content = preg_replace('#<li><p>(.*?)</p>(.*?)</li>#',
+            '<li>$1$2</li>', $archive->content);
+    }
+    $options->commentsAntiSpam = false;
 }
 
 /**
- * 主题设置
+ * 获取二维码
+ * @param string permalink
+ * @return string url
  */
-function themeFields($layout) {
-    $picUrl = new Typecho_Widget_Helper_Form_Element_Text('picUrl', NULL, NULL, _t('图片地址'), _t('在这里填入一个图片 URL 地址, 作为文章的头图'));
-    $layout->addItem($picUrl);
-}
-function themeConfig($form)
-{
-    echo '<p style="font-size:14px;" id="use-intro">
-    <span style="display: block;
-    margin-bottom: 10px;
-    margin-top: 10px;
-    font-size: 16px;">感谢您使用 Material 主题</span>
-    <span style="margin-bottom:10px;display:block">请关注 <a href="https://github.com/LiMingYuGuang/typecho-theme-material" target="_blank" style="color:#3384da;font-weight:bold;text-decoration:underline">Github-Material</a> 以获得<span style="color:#df3827;font-weight:bold;">最新版本支持</span></span>
-    <a href="mailto:i@lim-light.com" >帮助&支持</a> &nbsp;
-    <a href="https://github.com/LiMingYuGuang/typecho-theme-material/issues" target="_blank">建议&反馈</a>
-    </p>';
-
-    echo '当前版本 ' . MATERIAL_VERSION . '<span id="update"></span><script type="text/javascript" src="https://api.lim-light.com/update/material.php?version=' . MATERIAL_VERSION . '&encode=js-html&front=，" async defer></script>';
-    
-    $munu = '
-    <ul class="typecho-option" id="typecho-option-item-switch-0">
-    <li>
-        <label class="typecho-label" style="font-size: large">快速跳转</label>
-    </li>
-    <li>
-        <span class="multiline">
-        - <a href="#function">功能设定</a>
-    </span>
-    </li>
-    <li>
-        <span class="multiline">
-        - <a href="#style">样式设定</a>
-        </span>
-    </li>
-    </ul>
-    ';
-
-    echo "<br>" . $munu;
-
-    $switch = new Typecho_Widget_Helper_Form_Element_Checkbox('switch',
-    array(
-        'ShowPixiv' => _t('侧边栏显示 mokeyjay 的 pixiv 挂件'),
-        'SmoothScroll' => _t('平滑滚动效果'),
-        'ShowLoadingLine' => _t('顶部 loading 加载进度条效果'),
-        'atargetblank' => _t('链接以新标签页形式打开'),
-        'Pangu' => _t('引用 Pangu.js 实现中英文间自动添加空格'),
-        'PanguPHP' => _t('引用 Pangu.PHP 后端实现中英文间自动添加空格'),
-        'HighLight' => _t('引用 highlight.js 实现代码高亮')
-    ),
-
-    //Default choose
-    array('SmoothScroll','ShowLoadingLine','PanguPHP','HighLight'), _t('<span style="font-size: large" id="function"><strong>功能设定</strong></span><br /><br />功能开关')
-    );
-    $form->addInput($switch->multiMode());
-
-    $commentis = new Typecho_Widget_Helper_Form_Element_Radio('commentis',
-        array(
-            '0' => _t('使用原生评论 &emsp;'),
-        ),
-
-        '0', _t('文章评论'), _t("默认使用原生评论")
-    );
-    $form->addInput($commentis);
-
-    $searchis = new Typecho_Widget_Helper_Form_Element_Radio('searchis',
-        array(
-            '0' => _t('使用 Typecho 原生搜索 &emsp;'),
-            '1' => _t('使用本地搜索（即时搜索）（Beta）'),
-        ),
-
-        '0', _t('搜索设置'), _t("默认使用原生搜索；本地搜索移植自 hexo 版，需要手动创建索引页")
-    );
-    $form->addInput($searchis);
-
-    $LocalsearchURL = new Typecho_Widget_Helper_Form_Element_Text('LocalsearchURL', null, null, _t('本地搜索索引页链接'), _t('仅在启用即时搜索时需要填写'));
-    $form->addInput($LocalsearchURL);
-
-    $CDNType = new Typecho_Widget_Helper_Form_Element_Radio('CDNType',
-        array(
-            '0' => _t('不启用 CDN'),
-            '1' => _t('jsDelivr'),
-            '2' => _t('自定义'),
-        ),
-
-        '0', _t('MaterialCDN 类型'), _t("推荐使用 jsDelivr（注意，当你使用激进的开发版时，部分资源可能加载失败）")
-    );
-    $form->addInput($CDNType);
-
-    $CDNURL = new Typecho_Widget_Helper_Form_Element_Text('CDNURL', null, null, _t('CDN 地址'), _t("
-    创建一个文件夹，把 <b>css, fonts, img, js</b> 文件夹放进去，上传到到你的 CDN 储存空间根目录下<br />
-    填入你的 CDN 地址, 如 <b>https://material.lim-light.com/MaterialCDN</b>"));
-    $form->addInput($CDNURL);
-
-    $langis = new Typecho_Widget_Helper_Form_Element_Radio('langis',
-        array(
-            '0' => _t('English <br />'),
-            '1' => _t('简体中文 <br />'),
-        ),
-
-        '1', _t('界面语言设置'), _t("默认使用简体中文")
-    );
-    $form->addInput($langis);
-
-    $footersns = new Typecho_Widget_Helper_Form_Element_Checkbox('footersns',
-        array(
-            'ShowBilibili' => _t('哔哩哔哩 &emsp;'),
-            'ShowWeibo' => _t('新浪微博 &emsp;'),
-            'ShowZhihu' => _t('知乎 &emsp;<br />'),            
-            'ShowTwitter' => _t('Twitter &emsp;'),
-            'ShowV2EX' => _t('V2EX &emsp;'),
-            'ShowFacebook' => _t('Facebook &emsp;'),
-            'ShowGooglePlus' => _t('Google+ &emsp;<br />'),
-            'ShowInstagram' => _t('Instagram&emsp;'),
-            'ShowGithub' => _t('Github &emsp;'),
-            'ShowTumblr' => _t('Tumblr &emsp;<br />'),
-            'ShowTelegram' => _t('Telegram &emsp;'),
-            'ShowLinkedin' => _t('Linkedin &emsp;'),
-        ),
-
-        array('ShowTwitter','ShowFacebook','ShowGooglePlus'), _t('页脚 SNS 图标按钮显示设置'), _t('开启后, 按钮显示于博客页脚位置')
-    );
-    $form->addInput($footersns);
-
-    $BilibiliURL = new Typecho_Widget_Helper_Form_Element_Text('BilibiliURL', null, null, _t('哔哩哔哩 地址'), null);
-    $form->addInput($BilibiliURL);
-
-    $WeiboURL = new Typecho_Widget_Helper_Form_Element_Text('WeiboURL', null, null, _t('新浪微博 地址'), null);
-    $form->addInput($WeiboURL);
-
-    $ZhihuURL = new Typecho_Widget_Helper_Form_Element_Text('ZhihuURL', null, null, _t('知乎 地址'), null);
-    $form->addInput($ZhihuURL);
-    
-    $TwitterURL = new Typecho_Widget_Helper_Form_Element_Text('TwitterURL', null, null, _t('Twitter 地址'), null);
-    $form->addInput($TwitterURL);
-
-    $V2EXURL = new Typecho_Widget_Helper_Form_Element_Text('V2EXURL', null, null, _t('V2EX 地址'), null);
-    $form->addInput($V2EXURL);
-
-    $FacebookURL = new Typecho_Widget_Helper_Form_Element_Text('FacebookURL', null, null, _t('Facebook 地址'), null);
-    $form->addInput($FacebookURL);
-
-    $GooglePlusURL = new Typecho_Widget_Helper_Form_Element_Text('GooglePlusURL', null, null, _t('Google+ 地址'), null);
-    $form->addInput($GooglePlusURL);
-
-    $InstagramURL = new Typecho_Widget_Helper_Form_Element_Text('InstagramURL', null, null, _t('Instagram 地址'), null);
-    $form->addInput($InstagramURL);
-
-    $GithubURL = new Typecho_Widget_Helper_Form_Element_Text('GithubURL', null, null, _t('Github 地址'), null);
-    $form->addInput($GithubURL);
-
-    $TumblrURL = new Typecho_Widget_Helper_Form_Element_Text('TumblrURL', null, null, _t('Tumblr 地址'), null);
-    $form->addInput($TumblrURL);
-
-    $TelegramURL = new Typecho_Widget_Helper_Form_Element_Text('TelegramURL', null, null, _t('Telegram 地址'), null);
-    $form->addInput($TelegramURL);
-
-    $LinkedinURL = new Typecho_Widget_Helper_Form_Element_Text('LinkedinURL', null, null, _t('Linkedin 地址'), null);
-    $form->addInput($LinkedinURL);
-
-    $CustomFonts = new Typecho_Widget_Helper_Form_Element_Text('CustomFonts', null, _t("Roboto, 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif"), _t('自定义字体'), null);
-    $form->addInput($CustomFonts);
-
-    $RobotoSource = new Typecho_Widget_Helper_Form_Element_Radio('RobotoSource',
-    array(
-        '0' => _t('调用 Google fonts (使用 https://lug.ustc.edu.cn 中科大 https 镜像加速)<br />'),
-        '1' => _t('调用 Google fonts (使用 https://fonts.cat.net 镜像加速)<br />'),
-        '2' => _t('调用主题文件夹自带的 Roboto &emsp;<br />'),
-        '3' => _t('使用自定义字体源 (在"网站统计代码 + 自定义字体源"填入)')
-    ),
-
-    '2', _t('Roboto 字体使用来源'), null);
-    $form->addInput($RobotoSource);
-
-    $analysis = new Typecho_Widget_Helper_Form_Element_Textarea('analysis', null, null, _t('网站统计代码 + 自定义字体源'), _t('填入如 Google Analysis 的第三方统计代码或字体源'));
-    $form->addInput($analysis);
-
-    $loadingcolor = new Typecho_Widget_Helper_Form_Element_Text('loadingcolor', null, _t('#29d'), _t('<br><span style="font-size: large" id="style"><strong>样式设定</strong></span><br><br>loading 加载进度条颜色'), _t('打开 "功能开关" 中的 loading 加载进度条后, 在这里设置进度条的颜色'));
-    $form->addInput($loadingcolor);
-
-    $loadingbuffer = new Typecho_Widget_Helper_Form_Element_Text('loadingbuffer', null, _t('800'), _t('loading 加载缓冲时间'), _t('loading 加载进度条的缓冲时间, 单位为毫秒 ms, 默认为 800ms'));
-    $form->addInput($loadingbuffer);
-
-    $BGtype = new Typecho_Widget_Helper_Form_Element_Radio('BGtype',
-        array(
-            '0' => _t('纯色背景 &emsp;'),
-            '1' => _t('图片背景 &emsp;'),
-            '2' => _t('渐变背景 &emsp;')
-        ),
-
-        '0', _t('背景设置'), _t("选择背景方案, 对应填写下方的 '<b>背景颜色 / 图片</b>' 或选择 '<b>渐变样式</b>', 这里默认使用图片背景.")
-    );
-    $form->addInput($BGtype);
-
-    $bgcolor = new Typecho_Widget_Helper_Form_Element_Text('bgcolor', null, _t('#F5F5F5'), _t('背景颜色 / 图片'), _t('背景设置如果选择纯色背景, 这里就填写颜色代码; <br />背景设置如果选择图片背景, 这里就填写图片地址;<br />
-    不填写则默认显示 #F5F5F5 或主题文件夹下的 /img/bg.jpg'));
-    $form->addInput($bgcolor);
-
-    $GradientType = new Typecho_Widget_Helper_Form_Element_Radio('GradientType',
-        array(
-            '0' => _t('Aerinite &emsp;'),
-            '1' => _t('Ethereal &emsp;'),
-            '2' => _t('Patrichor <br />'),
-            '3' => _t('Komorebi &emsp;'),
-            '4' => _t('Crepuscular &emsp;'),
-            '5' => _t('Autumn <br />'),
-            '6' => _t('Shore &emsp;'),
-            '7' => _t('Horizon &emsp;'),
-            '8' => _t('Green Beach <br />'),
-            '9' => _t('Virgin <br />'),
-        ),
-
-        '0', _t('渐变样式'), _t("背景设置如果选择渐变背景, 在这里选择想要的渐变样式.")
-    );
-    $form->addInput($GradientType);
-
-    $ThumbnailOption = new Typecho_Widget_Helper_Form_Element_Radio('ThumbnailOption',
-        array(
-            '1' => _t('显示文章内第一张图片 (若无图片则显示随机图片)<br />'),
-            '2' => _t('只显示纯色 &emsp;'),
-            '3' => _t('只显示随机图片'),
-        ),
-
-        '1', _t('缩略图显示效果')
-    );
-    $form->addInput($ThumbnailOption);
-
-    $TitleColor = new Typecho_Widget_Helper_Form_Element_Text('TitleColor', null, _t('#FFF'), _t('缩略图为纯色时的颜色'), _t('填入颜色代码'));
-    $form->addInput($TitleColor);
-
-    $RandomPicAmnt = new Typecho_Widget_Helper_Form_Element_Text('RandomPicAmnt', null, _t('19'), _t('随机缩略图数量'), _t('img/random 图片的数量'));
-    $form->addInput($RandomPicAmnt);
-
-    $ThemeColor = new Typecho_Widget_Helper_Form_Element_Text('ThemeColor', null, _t('#0097A7'), _t('主题颜色'), null);
-    $form->addInput($ThemeColor);
-
-    $alinkcolor = new Typecho_Widget_Helper_Form_Element_Text('alinkcolor', null, _t('#00838F'), _t('超链接颜色'), null);
-    $form->addInput($alinkcolor);
-
-    $ChromeThemeColor = new Typecho_Widget_Helper_Form_Element_Text('ChromeThemeColor', null, _t('#0097A7'), _t('Android Chrome 地址栏颜色'), null);
-    $form->addInput($ChromeThemeColor);
-
-    $ButtonThemeColor = new Typecho_Widget_Helper_Form_Element_Text('ButtonThemeColor', null, _t('#757575'), _t('按钮颜色'), null);
-    $form->addInput($ButtonThemeColor);
-
-    $CardElevation = new Typecho_Widget_Helper_Form_Element_Text('CardElevation', null, _t('2'), _t('卡片阴影'), _t('默认为 2'));
-    $form->addInput($CardElevation);
-
-    $CommentRows = new Typecho_Widget_Helper_Form_Element_Text('CommentRows', null, _t('1'), _t('评论框行数'), _t('默认为 1'));
-    $form->addInput($CommentRows);
-
-    $avatarURL = new Typecho_Widget_Helper_Form_Element_Text('avatarURL', null, null, '个人头像地址', '填入头像的地址, 如不填写则使用默认头像');
-    $form->addInput($avatarURL);
-
-    $favicon = new Typecho_Widget_Helper_Form_Element_Text('favicon', null, null, _t('favicon 地址'), _t('填入博客 favicon 的地址, 默认则不显示'));
-    $form->addInput($favicon);
-
-    $sidebarheader = new Typecho_Widget_Helper_Form_Element_Text('sidebarheader', null, null, _t('侧边栏顶部图片'), _t('填入图片地址, 如不填写则使用默认图片'));
-    $form->addInput($sidebarheader);
-
-    $dailypic = new Typecho_Widget_Helper_Form_Element_Text('dailypic', null, null, _t('首页顶部左边的图片地址'), _t('填入图片地址, 图片显示在首页顶部左边位置'));
-    $form->addInput($dailypic);
-
-    $logo = new Typecho_Widget_Helper_Form_Element_Text('logo', null, null, _t('首页顶部右边 LOGO 图片地址'), _t('填入 LOGO 地址, 图片将显示于首页右上角板块'));
-    $form->addInput($logo);
-
-    $logosize = new Typecho_Widget_Helper_Form_Element_Radio('logosize',
-    array(
-        '1' => _t('标准 &emsp;'),
-        '2' => _t('更大 &emsp;'),
-    ),
-
-        '1', _t('首页顶部右边 LOGO 图片地址大小'), _t('仅在使用自定义图片时有效')
-    );
-    $form->addInput($logosize);
-
-    $dailypicLink = new Typecho_Widget_Helper_Form_Element_Text('dailypicLink', null, _t('#'), _t('首页顶部左边图片的点击跳转地址'), _t('点击图片后, 想要跳转网页的地址'));
-    $form->addInput($dailypicLink);
-
-    $logoLink = new Typecho_Widget_Helper_Form_Element_Text('logoLink', null, null, _t('首页顶部右边 LOGO 的点击跳转地址'), _t('点击 LOGO 后, 想要跳转网页的地址'));
-    $form->addInput($logoLink);
-
-    $slogan = new Typecho_Widget_Helper_Form_Element_Text('slogan', null, _t('Hi, nice to meet you'), _t('首页顶部左边的标语'), _t('填入自定义文字, 显示于首页顶部左边的图片上'));
-    $form->addInput($slogan);
-
+function getQRCode($permalink) {
+    $qrcode = getThemeOptions("qrcode");
+    if ($qrcode === NULL) $qrcode = 0;
+    $src = "";
+    switch ($qrcode) {
+        case 0:
+            $src = "https://api.lwl12.com/img/qrcode/get?ct=$permalink&w=200&h=200";
+            break;
+        case 1:
+            $src = "https://api.imjad.cn/qrcode/?text=$permalink&size=200&level=L";
+            break;
+        case 2:
+            $src = "https://chart.googleapis.com/chart?chs=200x200&cht=qr&chld=H|1&chl=$permalink";
+            break;
+        case 3:
+            $src = "https://www.wandoujia.com/api/qr?s=7&c=$permalink";
+            break;
+    }
+    echo $src;
+    return $src;
 }
 
 /**
  * 文章缩略图
- * @param $widget $widget
+ * @param Typecho_Widget $widget
+ * @return string image url
  */
 function showThumbnail($widget)
 {
-    if($widget->fields->picUrl){
-        echo $widget->fields->picUrl;
-        return;
+    if ($widget->fields->picUrl){
+        return $widget->fields->picUrl;
     }
 
     //If article no include picture, display random default picture
     $rand = rand(1, $widget->widget('Widget_Options')->RandomPicAmnt); //Random number
 
     $random = getThemeFile('img/random/material-' . $rand . '.png');
-    
-
 
     // If only one random default picture, delete the following "//"
     //$random = $widget->widget('Widget_Options')->themeUrl . '/img/random.jpg';
@@ -400,19 +219,20 @@ function showThumbnail($widget)
     $patternlazy = '/\<img.*?data-original\=\"(.*?)\"[^>]*>/i';
 
     if (preg_match_all($pattern, $widget->content, $thumbUrl)) {
-        echo $thumbUrl[1][0];
+        return $thumbUrl[1][0];
     } elseif (preg_match_all($patternlazy, $widget->content, $thumbUrl)) {
-        echo $thumbUrl[1][0];
+        return $thumbUrl[1][0];
     } elseif ($attach->isImage) {
-        echo $attach->url;
+        return $attach->url;
     } else {
-        echo $random;
+        return $random;
     }
 }
 
 /**
  * 随机缩略图
- * @param $widget $widget
+ * @param Typecho_Widget $widget
+ * @return string image url
  */
 function randomThumbnail($widget)
 {
@@ -421,25 +241,15 @@ function randomThumbnail($widget)
 
     $random = getThemeFile('img/random/material-' . $rand . '.png');
 
-    echo $random;
+    return $random;
 }
 
 /**
- * Pjax 检测
- * @return bool 是否为 pjax 请求
- * @deprecated 在未来将可能被删除
- */
-function isPjax()
-{
-    return array_key_exists('HTTP_X_PJAX', $_SERVER) && $_SERVER['HTTP_X_PJAX'];
-}
-
-/**
- * Console Copyrigtht
+ * Console Copyright
  */
 function copyright()
 {
-    echo '<script>console.log("\n %c © Material ' . MATERIAL_VERSION . ' | https://github.com/LiMingYuGuang/typecho-theme-material %c \n","color:#455a64;background:#e0e0e0;padding:5px 0;border-top-left-radius:5px;border-bottom-left-radius:5px;","color:#455a64;background:#e0e0e0;padding:5px 0;border-top-right-radius:5px;border-bottom-right-radius:5px;")</script>';
+    echo '<script>console.log("\n %c © Material ' . MATERIAL_VERSION . ' | https://github.com/idawnlight/typecho-theme-material %c \n","color:#455a64;background:#e0e0e0;padding:5px 0;border-top-left-radius:5px;border-bottom-left-radius:5px;","color:#455a64;background:#e0e0e0;padding:5px 0;border-top-right-radius:5px;border-bottom-right-radius:5px;")</script>';
 }
 
 /**
@@ -451,7 +261,31 @@ function copyright()
  */
 function tranMsg($eng, $chs, $l)
 {
-  return ($l == "0") ? $eng : $chs ;
+    return ($l == "0") ? $eng : $chs ;
+}
+
+/**
+ * i18n support
+ * @param string expression
+ * @return string translation
+ */
+function lang($expression, $display = true)
+{
+    static $lang = NULL;
+    $language = (getThemeOptions("language") !== NULL) ? getThemeOptions("language") : "zh-CN";
+    if ($lang === NULL) $lang = Spyc::YAMLLoad(Helper::options()->themeFile(getTheme(), "languages/".$language.".yml"));
+    $now = $lang;
+    foreach (explode(".", $expression) as $exp) {
+        if (isset($now[$exp])) {
+            if (!is_array($now[$exp])) {
+                if ($display) echo $now[$exp];
+                return $now[$exp];
+            }
+            $now = $now[$exp];
+        } else {
+            return false;
+        }
+    }
 }
 
 /**
@@ -459,7 +293,8 @@ function tranMsg($eng, $chs, $l)
  * @param string html_source
  * @return string 处理完的 html_source
  */
-function pangu($html_source) {
+function pangu($html_source)
+{
     $chunks = preg_split('/(<!--<nopangu>-->.*?<!--<\/nopangu>-->|<nopangu>.*?<\/nopangu>|<pre.*?\/pre>|<textarea.*?\/textarea>|<code.*?\/code>)/msi', $html_source, -1, PREG_SPLIT_DELIM_CAPTURE);
     $result = '';
     foreach ($chunks as $c) {
@@ -478,4 +313,21 @@ function pangu($html_source) {
         $result .= doPangu($c);
     }
     return $result;
+}
+
+/**
+ * 获取描述
+ * @return bool 是否已输出
+ */
+function getDescription() {
+    global $t;
+    if (method_exists($t,'is') && $t->is("post") || $t->is("page")) {
+        if ($t->fields->description != ""){
+            echo $t->fields->description;
+        } else {
+            $t->excerpt(80, '...');
+        }
+        return true;
+    }
+    return false;
 }

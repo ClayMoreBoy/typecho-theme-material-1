@@ -94,32 +94,32 @@ $this->need('header.php'); ?>
     }
 </style>
 
-    <div class="material-layout  mdl-js-layout has-drawer is-upgraded">
+<div class="material-layout  mdl-js-layout has-drawer is-upgraded">
 
-        <main class="material-layout__content" id="main">
+    <main class="material-layout__content" id="main">
 
-            <!-- Top Anchor -->
-            <div id="top"></div>
+        <!-- Top Anchor -->
+        <div id="top"></div>
 
-            <!-- Sidebar hamburger button -->
-            <button class="MD-burger-icon sidebar-toggle">
-                <span class="MD-burger-layer"></span>
-            </button>
+        <!-- Hamburger Button -->
+        <button class="MD-burger-icon sidebar-toggle">
+            <span id="MD-burger-id" class="MD-burger-layer"></span>
+        </button>
 
-            <div class="md-links">
-                <?php if (class_exists("Links_Plugin")): ?>
+        <div class="md-links">
+            <?php if (class_exists("Links_Plugin")): ?>
                 <?php Links_Plugin::output('
                 <a href="{url}" title="{title}" target="_blank">
                     <li class="md-links-item">
-                        <img src="{image}" alt="{name}" width="72px"/>
+                        <img src="{image}" alt="{name}" height="72px"/>
                         <span  class="md-links-title">{name}</span><br />
                         <span>{description}</span>
                     </li>
                 </a>
                 '); ?>
-                <?php endif; ?>
-            </div>
+            <?php endif; ?>
+        </div>
 
 
-    <?php include('sidebar.php'); ?>
-    <?php include('footer.php'); ?>
+        <?php include('sidebar.php'); ?>
+        <?php include('footer.php'); ?>
